@@ -1,0 +1,151 @@
+import sqlite3
+from datetime import datetime
+import tkinter as tk
+from tkinter import messagebox, ttk
+import matplotlib.pyplot as plt
+
+# ======================
+# BANCO DE DADOS
+# ======================
+conn = sqlite3.connect("financeiro.db")
+cursor = conn.cursor()
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS transacoes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tipo TEXT,
+    valor REAL,
+    descricao TEXT,
+    data TEXT
+)
+""")
+conn.commit()
+
+# ======================
+# FUNÇÕES
+# ======================
+
+def adicionar_transacao(tipo):
+    try:
+        valor = float(entry_valor.get())
+        descricao = entry_desc.get()
+        data = datetime.now().strftime("%Y-%m-%d")
+
+        cursor.execute("INSERT INTO transacoes (tipo, valor, descricao, data) VALUES (?, ?, ?, ?)",
+                       (tipo, valor, descricao, data))
+        conn.commit()
+
+        atualizar_tabela()
+    except ValueError:
+        messagebox.showerror("Erro", "Digite um valor válido!")
+
+
+def deletar_transacao():
+    selecionado = tabela.selection()
+
+    if not selecionado:
+        messagebox.showwarning("Aviso", "Selecione um item!")
+        return
+
+    confirmar = messagebox.askyesno("Confirmar", "Deseja excluir?")
+
+    if confirmar:
+        item = tabela.item(selecionado)
+        id_transacao = item["values"][0]
+
+        cursor.execute("DELETE FROM transacoes WHERE id=?", (id_transacao,))
+        conn.commit()
+        atualizar_tabela()
+
+
+def calcular_resumo():
+    cursor.execute("SELECT SUM(valor) FROM transacoes WHERE tipo='ganho'")
+    ganhos = cursor.fetchone()[0] or 0
+
+    cursor.execute("SELECT SUM(valor) FROM transacoes WHERE tipo='gasto'")
+    gastos = cursor.fetchone()[0] or 0
+
+    lucro = ganhos - gastos
+
+    label_resumo.config(text=f"Ganhos: R$ {ganhos:.2f} | Gastos: R$ {gastos:.2f} | Lucro: R$ {lucro:.2f}")
+
+
+def atualizar_tabela():
+    for row in tabela.get_children():
+        tabela.delete(row)
+
+    cursor.execute("SELECT * FROM transacoes ORDER BY data DESC")
+    for row in cursor.fetchall():
+        tabela.insert("", "end", values=row)
+
+    calcular_resumo()
+
+
+def gerar_grafico():
+    cursor.execute("SELECT data, SUM(valor) FROM transacoes WHERE tipo='ganho' GROUP BY data")
+    dados = cursor.fetchall()
+
+    if not dados:
+        messagebox.showwarning("Aviso", "Sem dados para gráfico!")
+        return
+
+    datas = [d[0] for d in dados]
+    valores = [d[1] for d in dados]
+
+    plt.figure()
+    plt.plot(datas, valores, marker='o')
+    plt.title("Ganhos por Dia")
+    plt.xlabel("Data")
+    plt.ylabel("Valor (R$)")
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    plt.show()
+
+# ======================
+# INTERFACE
+# ======================
+
+janela = tk.Tk()
+janela.title("Gestão Motorista PRO")
+janela.geometry("800x550")
+
+frame_topo = tk.Frame(janela)
+frame_topo.pack(pady=10)
+
+entry_valor = tk.Entry(frame_topo)
+entry_valor.grid(row=0, column=0, padx=5)
+entry_valor.insert(0, "Valor")
+
+entry_desc = tk.Entry(frame_topo)
+entry_desc.grid(row=0, column=1, padx=5)
+entry_desc.insert(0, "Descrição")
+
+btn_ganho = tk.Button(frame_topo, text="+ Ganho", command=lambda: adicionar_transacao("ganho"))
+btn_ganho.grid(row=0, column=2, padx=5)
+
+btn_gasto = tk.Button(frame_topo, text="- Gasto", command=lambda: adicionar_transacao("gasto"))
+btn_gasto.grid(row=0, column=3, padx=5)
+
+btn_deletar = tk.Button(frame_topo, text="Excluir", command=deletar_transacao)
+btn_deletar.grid(row=0, column=4, padx=5)
+
+btn_grafico = tk.Button(frame_topo, text="Ver Gráfico", command=gerar_grafico)
+btn_grafico.grid(row=0, column=5, padx=5)
+
+# Tabela
+colunas = ("ID", "Tipo", "Valor", "Descrição", "Data")
+tabela = ttk.Treeview(janela, columns=colunas, show="headings")
+
+for col in colunas:
+    tabela.heading(col, text=col)
+
+
+tabela.pack(expand=True, fill="both", pady=10)
+
+# Resumo
+label_resumo = tk.Label(janela, text="Resumo", font=("Arial", 12, "bold"))
+label_resumo.pack(pady=10)
+
+atualizar_tabela()
+
+janela.mainloop()
